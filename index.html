@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Luni Dashboard</title>
+<style>
+:root{--bg:#0e1116;--p:#161b22;--fg:#e6edf3;--dim:#8b949e;--ac:#58a6ff;--acf:#0d1117;--bd:#30363d;--al:#ff7b72;--r:8px;--f:system-ui,"Segoe UI",sans-serif}
+[data-t=light]{--bg:#f3f4f6;--p:#fff;--fg:#1f2328;--dim:#6b7280;--ac:#0969da;--acf:#fff;--bd:#d0d7de;--al:#cf222e}
+[data-t=y2005]{--bg:#ece9d8;--p:#fff;--fg:#000;--dim:#555;--ac:#0054e3;--acf:#fff;--bd:#7f9db9;--al:#c00;--r:3px;--f:Tahoma,sans-serif}
+[data-t=y1999]{--bg:#c0c0c0;--p:#fff;--fg:#000;--dim:#404040;--ac:#000080;--acf:#fff;--bd:#808080;--al:#f00;--r:0;--f:Arial,sans-serif}
+[data-t=term]{--bg:#000;--p:#000;--fg:#33ff66;--dim:#1f9d3f;--ac:#b6ffc8;--acf:#000;--bd:#1f9d3f;--al:#f55;--r:0;--f:Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 var(--f)}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:14px 20px;background:var(--p);border-bottom:3px solid var(--ac)}
+h1{margin:0;font-size:22px}h1 small{display:block;font-size:12px;font-weight:400;color:var(--dim)}
+#clock{text-align:right;font-size:26px;font-weight:300}#clock small{display:block;font-size:12px;color:var(--dim)}
+nav{display:flex;gap:6px;padding:10px 20px 0;flex-wrap:wrap}
+button,input,select,textarea{font:inherit;color:var(--fg);background:var(--p);border:1px solid var(--bd);border-radius:var(--r);padding:6px 12px}
+button{cursor:pointer}button:hover{border-color:var(--ac)}
+button.on,button.pri{background:var(--ac);color:var(--acf);border-color:var(--ac)}
+main{padding:12px 20px 40px;max-width:1200px;margin:auto}
+.card{background:var(--p);border:1px solid var(--bd);border-radius:var(--r);padding:14px;margin-bottom:12px}
+.dim{color:var(--dim)}.al{color:var(--al)}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+#wx{display:flex;flex-wrap:wrap;gap:18px;align-items:center}
+.big{font-size:40px;font-weight:300;color:var(--ac)}
+.days{display:flex;gap:10px;flex-wrap:wrap}.days div{text-align:center;min-width:70px}
+.split{display:grid;grid-template-columns:minmax(260px,1fr) 1.4fr;gap:12px}
+@media(max-width:760px){.split{grid-template-columns:1fr}}
+.item{padding:8px 10px;border-bottom:1px solid var(--bd);cursor:pointer}
+.item:hover,.item.sel{background:color-mix(in srgb,var(--ac) 18%,transparent)}
+.item b{font-weight:400}.item.unread b{font-weight:700}
+#list{max-height:70vh;overflow:auto;padding:0}
+#reader h2{margin-top:0}
+.modal{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;padding:14px;z-index:9}
+.modal .card{max-width:560px;width:100%;max-height:92vh;overflow:auto;margin:0}
+.modal label{display:block;margin:10px 0 3px;color:var(--dim);font-size:13px}
+.modal input,.modal select,.modal textarea{width:100%}
+.hit{display:block;padding:6px;cursor:pointer;border-radius:var(--r)}.hit:hover{background:color-mix(in srgb,var(--ac) 18%,transparent)}
+#np{font-size:26px;margin:4px 0}
+.st{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd)}.st span{flex:1}
+.st.now span{color:var(--ac);font-weight:700}
+#notes{width:100%;height:55vh}
+a{color:var(--ac)}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Luni Dashboard<small id="sub"></small></h1>
+  <div id="clock"></div>
+</header>
+<nav id="tabs"></nav>
+<main id="main"></main>
+<div id="modal"></div>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+<script>
+/* ---------- helpers + saved profile (localStorage: stays in this browser) ---------- */
+const $=s=>document.querySelector(s),KEY='luni.dashboard.v1';
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const gnews=q=>`https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`;
+const PX='https://api.allorigins.win/raw?url=';
+const THEMES={modern:'Modern dark',light:'Modern light',y2005:'2005',y1999:'1999',term:'Terminal'};
+const PRESETS=[
+ {name:'590 KCSJ',dial:'AM 590',url:'https://stream.revma.ihrhls.com/zc4814'},
+ {name:'107.9 KBPI South',dial:'FM 107.9',url:''},{name:'Y96.9',dial:'FM 96.9',url:''},
+ {name:'My 99.9',dial:'FM 99.9',url:''},{name:'Fox Sports 1350',dial:'AM 1350',url:''},
+ {name:'Rev 89',dial:'FM 89.5',url:''},{name:'CPR Classical',dial:'FM 91.9',url:''}];
+let S;try{S=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){S=null}
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
+const defFeeds=p=>[{n:p.city+' news',u:gnews(`${p.city} ${p.region||''} when:3d`)},{n:p.city+' (week)',u:gnews(`"${p.city}" when:7d`)}];
+let tab='news',items=[],wx=null,alerts=[],cur=-1,sel=null,editing=-1,rmsg='Stopped';
+
+/* ---------- setup / settings dialog (same form, first run and later edits) ---------- */
+function openSetup(first){
+  const v=S||{name:'',place:null,units:'F',theme:'modern',feeds:[]};
+  let pick=v.place;
+  $('#modal').innerHTML=`<div class="modal"><div class="card">
+   <h2 style="margin-top:0">${first?'Welcome to Luni Dashboard':'Settings'}</h2>
+   ${first?'<p class="dim">Tell me a little about you. It is saved only in this browser (nothing is uploaded) and you can change it any time under Settings.</p>':''}
+   <label>Your name</label><input id="f_name" value="${esc(v.name)}" placeholder="Luni">
+   <label>Your city (search, then click your result)</label>
+   <div class="row"><input id="f_q" style="flex:1" value="${esc(v.place?v.place.city:'')}" placeholder="e.g. Pueblo"><button id="f_go">Search</button></div>
+   <div id="f_hits" class="dim">${pick?'Selected: '+esc(pick.label):''}</div>
+   <div class="row"><div style="flex:1"><label>Units</label><select id="f_u"><option value="F">°F / mph</option><option value="C">°C / km/h</option></select></div>
+   <div style="flex:1"><label>Theme</label><select id="f_t">${Object.entries(THEMES).map(([k,n])=>`<option value="${k}">${n}</option>`).join('')}</select></div></div>
+   ${first?'':`<label>News feeds (one per line: Name | RSS URL)</label><textarea id="f_feeds" rows="5">${esc(v.feeds.map(f=>f.n+' | '+f.u).join('\n'))}</textarea>`}
+   <div class="row" style="margin-top:14px"><button class="pri" id="f_ok">${first?'Open my dashboard':'Save'}</button>
+   ${first?'':'<button id="f_x">Cancel</button><button id="f_reset" class="al" style="margin-left:auto">Erase all my data</button>'}</div>
+   <p id="f_err" class="al"></p></div></div>`;
+  $('#f_u').value=v.units;$('#f_t').value=v.theme;
+  $('#f_t').onchange=e=>document.documentElement.dataset.t=e.target.value;
+  $('#f_go').onclick=async()=>{
+    const q=$('#f_q').value.trim();if(!q)return;$('#f_hits').textContent='Searching…';
+    try{const r=await(await fetch('https://geocoding-api.open-meteo.com/v1/search?count=6&name='+encodeURIComponent(q))).json();
+      if(!r.results){$('#f_hits').textContent='No match - try just the city name.';return}
+      $('#f_hits').innerHTML=r.results.map((x,i)=>`<a class="hit" data-i="${i}">${esc(x.name)}, ${esc(x.admin1||'')} ${esc(x.country_code||'')}</a>`).join('');
+      document.querySelectorAll('.hit').forEach(a=>a.onclick=()=>{const x=r.results[a.dataset.i];
+        pick={city:x.name,region:x.admin1||'',country:x.country_code||'',lat:x.latitude,lon:x.longitude,tz:x.timezone,
+          label:`${x.name}, ${x.admin1||''} ${x.country_code||''}`};
+        $('#f_hits').textContent='Selected: '+pick.label})}
+    catch(e){$('#f_hits').textContent='Search failed (offline?).'}};
+  if(!first){$('#f_x').onclick=()=>{$('#modal').innerHTML='';document.documentElement.dataset.t=S.theme};
+    $('#f_reset').onclick=()=>{if(confirm('Erase your profile, notes, stations and read history from this browser?')){localStorage.removeItem(KEY);location.reload()}}}
+  $('#f_ok').onclick=()=>{
+    if(!pick){$('#f_err').textContent='Please search for your city and click a result.';return}
+    const moved=!S||!S.place||S.place.lat!==pick.lat;
+    const old=S||{};
+    let feeds=old.feeds&&old.feeds.length&&!moved?old.feeds:defFeeds(pick);
+    if(!first){feeds=$('#f_feeds').value.split('\n').map(l=>l.split('|').map(x=>x.trim())).filter(a=>a[1]&&/^https?:/.test(a[1])).map(a=>({n:a[0]||a[1],u:a[1]}))}
+    S={...old,name:$('#f_name').value.trim()||'friend',place:pick,units:$('#f_u').value,theme:$('#f_t').value,feeds,
+       stations:old.stations||PRESETS.map(x=>({...x})),notes:old.notes||'',read:old.read||[],vol:old.vol??.7};
+    save();$('#modal').innerHTML='';start()}
+}
+
+/* ---------- shell ---------- */
+function start(){
+  document.documentElement.dataset.t=S.theme;
+  $('#sub').textContent=`${S.name}'s dashboard · ${S.place.label}`;
+  $('#tabs').innerHTML=[['news','News'],['wx','Weather'],['radio','Radio'],['notes','Notes']].map(([k,n])=>`<button data-k="${k}" class="${k===tab?'on':''}">${n}</button>`).join('')+'<button id="gear" style="margin-left:auto">Settings</button>';
+  $('#tabs').onclick=e=>{const k=e.target.dataset.k;if(k){tab=k;start()}if(e.target.id==='gear')openSetup(false)};
+  render();if(!items.length)loadNews();if(!wx)loadWx();
+}
+const render=()=>({news:rNews,wx:rWx,radio:rRadio,notes:rNotes}[tab])();
+setInterval(()=>{if(!S)return;const n=new Date(),o={timeZone:S.place.tz};
+  $('#clock').innerHTML=n.toLocaleTimeString([],{...o,hour:'numeric',minute:'2-digit'})+`<small>${n.toLocaleDateString([],{...o,weekday:'long',month:'short',day:'numeric'})}</small>`},1000);
+setInterval(()=>{if(S){loadWx();loadNews()}},15*60e3);
+
+/* ---------- weather: Open-Meteo + US National Weather Service alerts ---------- */
+const WMO={0:'Clear',1:'Mostly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Fog',51:'Drizzle',53:'Drizzle',55:'Drizzle',61:'Light rain',63:'Rain',65:'Heavy rain',71:'Light snow',73:'Snow',75:'Heavy snow',80:'Showers',81:'Showers',82:'Heavy showers',85:'Snow showers',86:'Snow showers',95:'Thunderstorm',96:'Thunderstorm, hail',99:'Thunderstorm, hail'};
+async function loadWx(){
+  const p=S.place,f=S.units==='F';
+  try{const u=`https://api.open-meteo.com/v1/forecast?latitude=${p.lat}&longitude=${p.lon}&timezone=auto&forecast_days=6`+
+    `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m`+
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset`+
+    (f?'&temperature_unit=fahrenheit&wind_speed_unit=mph':'');
+    wx=await(await fetch(u)).json()}catch(e){wx=null}
+  alerts=[];if(p.country==='US'){try{const r=await(await fetch(`https://api.weather.gov/alerts/active?point=${p.lat.toFixed(4)},${p.lon.toFixed(4)}`)).json();
+    alerts=(r.features||[]).map(a=>a.properties)}catch(e){}}
+  if(tab==='wx'||tab==='news')render()}
+function wxBlock(full){
+  if(!wx)return'<div class="card dim">Weather loading…</div>';
+  const c=wx.current,d=wx.daily,u=S.units==='F'?'°F':'°C',ws=S.units==='F'?'mph':'km/h';
+  const t=s=>new Date(s).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+  return `${alerts.map(a=>`<div class="card al"><b>⚠ ${esc(a.event)}</b> - ${esc(a.headline||'')}${full?`<p>${esc((a.description||'').slice(0,700))}</p>`:''}</div>`).join('')}
+  <div class="card" id="wx"><div><div class="big">${Math.round(c.temperature_2m)}${u}</div><div>${WMO[c.weather_code]||''}</div></div>
+  <div class="dim">Feels ${Math.round(c.apparent_temperature)}${u}<br>Wind ${Math.round(c.wind_speed_10m)} ${ws}<br>Humidity ${c.relative_humidity_2m}%<br>Sun ${t(d.sunrise[0])} – ${t(d.sunset[0])}</div>
+  <div class="days">${d.time.map((x,i)=>`<div><b>${i?new Date(x+'T12:00').toLocaleDateString([],{weekday:'short'}):'Today'}</b><br>${Math.round(d.temperature_2m_max[i])}/${Math.round(d.temperature_2m_min[i])}${u}<br><span class="dim">${d.precipitation_probability_max[i]??0}% · ${WMO[d.weather_code[i]]||''}</span></div>`).join('')}</div></div>`}
+const rWx=()=>{$('#main').innerHTML=wxBlock(true)+(wx?'':'')+'<p class="dim">Forecast by Open-Meteo; US alerts from the National Weather Service.</p>'};
+
+/* ---------- news: RSS / Atom through a CORS proxy ---------- */
+const strip=h=>{const d=document.createElement('div');d.innerHTML=h||'';return(d.textContent||'').replace(/\s+/g,' ').trim()};
+async function loadNews(){
+  const out=await Promise.allSettled(S.feeds.map(async f=>{
+    const x=await(await fetch(PX+encodeURIComponent(f.u))).text(),d=new DOMParser().parseFromString(x,'text/xml');
+    return[...d.querySelectorAll('item,entry')].slice(0,30).map(e=>{
+      const g=t=>e.querySelector(t)?.textContent||'',l=e.querySelector('link'),link=l?.getAttribute('href')||l?.textContent||'';
+      const src=g('source')||f.n;let title=strip(g('title'));if(title.endsWith(' - '+src))title=title.slice(0,-src.length-3);
+      return{id:link||title,title,src,link,date:new Date(g('pubDate')||g('published')||g('updated')||Date.now()),body:strip(g('description')||g('summary')||g('content'))}})}));
+  const seen=new Set();items=out.flatMap(r=>r.status==='fulfilled'?r.value:[]).filter(i=>!seen.has(i.id)&&seen.add(i.id)).sort((a,b)=>b.date-a.date);
+  if(tab==='news')rNews()}
+const ago=d=>{const m=(Date.now()-d)/6e4;return m<60?Math.max(1,m|0)+'m':m<1440?(m/60|0)+'h':(m/1440|0)+'d'};
+function rNews(){
+  const unread=items.filter(i=>!S.read.includes(i.id)).length;
+  $('#main').innerHTML=wxBlock(false)+`<div class="row" style="margin:6px 0"><button id="rf">Refresh</button><button id="ma">Mark all read</button><span class="dim">${items.length?unread+' unread of '+items.length:'Loading news…'}</span></div>
+  <div class="split"><div class="card" id="list">${items.map((i,n)=>`<div class="item ${S.read.includes(i.id)?'':'unread'} ${sel===n?'sel':''}" data-n="${n}"><b>${esc(i.title)}</b><br><span class="dim">${esc(i.src)} · ${ago(i.date)}</span></div>`).join('')||'<p class="dim" style="padding:10px">Nothing yet. If this stays empty, the free feed proxy may be busy - hit Refresh.</p>'}</div>
+  <div class="card" id="reader">${sel!==null&&items[sel]?(i=>`<h2>${esc(i.title)}</h2><p class="dim">${esc(i.src)} · ${i.date.toLocaleString()}</p><p>${esc(i.body)}</p><p><a href="${esc(i.link)}" target="_blank" rel="noopener">Read the full article ↗</a></p>`)(items[sel]):'<p class="dim">Pick a headline.</p>'}</div></div>`;
+  $('#rf').onclick=()=>{loadWx();loadNews()};
+  $('#ma').onclick=()=>{S.read=[...new Set([...S.read,...items.map(i=>i.id)])].slice(-4000);save();rNews()};
+  $('#list').onclick=e=>{const el=e.target.closest('.item');if(!el)return;sel=+el.dataset.n;const i=items[sel];
+    if(!S.read.includes(i.id)){S.read.push(i.id);S.read=S.read.slice(-4000);save()}const st=$('#list').scrollTop;rNews();$('#list').scrollTop=st}}
+
+/* ---------- radio: <audio>, HLS through hls.js, iHeart page links auto-converted ---------- */
+const au=new Audio(),norm=u=>{const m=/iheart\.com\/live\/(?:[^\/?#]*-)?(\d{2,})/i.exec(u);return m?'https://stream.revma.ihrhls.com/zc'+m[1]:u.trim()};
+let hls=null;
+au.onplaying=()=>say('On air');au.onwaiting=()=>say('Buffering…');au.onerror=()=>say('Could not play this stream (offline, or blocked by the station).',1);
+const say=(m,bad)=>{rmsg=m;const e=$('#rmsg');if(e){e.textContent=m;e.className=bad?'al':'dim'}const b=$('#pp');if(b)b.textContent=au.paused?'▶ Play':'❚❚ Pause'};
+function play(i){
+  const s=S.stations[i];if(!s)return;cur=i;if(hls){hls.destroy();hls=null}au.pause();
+  if(!s.url){say('No stream address yet - click Edit and paste one (an iHeart page link works).',1);return radioUI()}
+  const u=norm(s.url);say('Connecting…');
+  const viaHls=()=>{if(window.Hls&&Hls.isSupported()){hls=new Hls();hls.loadSource(u);hls.attachMedia(au);hls.on(Hls.Events.MANIFEST_PARSED,()=>au.play().catch(()=>{}));hls.on(Hls.Events.ERROR,(e,d)=>d.fatal&&say('Could not play this stream.',1))}else say('Could not play this stream.',1)};
+  if(/\.m3u8/i.test(u))viaHls();else{au.src=u;au.volume=S.vol;au.play().catch(viaHls)}
+  radioUI()}
+const playable=()=>S.stations.map((s,i)=>s.url?i:-1).filter(i=>i>=0);
+function step(d){const p=playable();if(!p.length)return say('Add a stream address to a station first.',1);const k=p.indexOf(cur);play(p[((k<0?(d>0?-1:0):k)+d+p.length)%p.length])}
+const toggle=()=>{if(!au.paused)return au.pause()||say('Paused');cur<0?step(1):play(cur)};
+au.onpause=()=>{if(!au.error)say('Paused')};
+function rRadio(){
+  $('#main').innerHTML=`<div class="card"><div class="dim">NOW PLAYING</div><div id="np"></div><div id="rmsg" class="dim">${esc(rmsg)}</div>
+  <div class="row" style="margin-top:10px"><button id="bk">◀◀ Back</button><button id="pp" class="pri"></button><button id="sk">Skip ▶▶</button><button id="st">■ Stop</button>
+  <label class="dim">Volume <input id="vol" type="range" min="0" max="100" value="${S.vol*100}"></label></div></div>
+  <div class="card"><div id="slist"></div><h3>${editing>=0?'Edit station':'Add a station'}</h3>
+  <div class="row"><input id="a_n" placeholder="Name" style="flex:1"><input id="a_d" placeholder="Dial (optional)" style="width:130px"></div>
+  <input id="a_u" placeholder="Stream URL (mp3/aac/m3u8) or an iheart.com/live/… page link" style="width:100%;margin-top:8px">
+  <div class="row" style="margin-top:8px"><button class="pri" id="a_ok">${editing>=0?'Save station':'Add station'}</button>${editing>=0?'<button id="a_x">Cancel</button>':'<button id="a_pre">Restore Pueblo presets</button>'}</div>
+  <p class="dim">Browsers play direct streams only. On an https site (GitHub Pages) a station whose address starts with http:// is blocked - use https:// ones.</p></div>`;
+  if(editing>=0){const s=S.stations[editing];$('#a_n').value=s.name;$('#a_d').value=s.dial||'';$('#a_u').value=s.url}
+  $('#bk').onclick=()=>step(-1);$('#sk').onclick=()=>step(1);$('#pp').onclick=toggle;$('#st').onclick=()=>{au.pause();au.removeAttribute('src');say('Stopped')};
+  $('#vol').oninput=e=>{S.vol=e.target.value/100;au.volume=S.vol;save()};
+  $('#a_ok').onclick=()=>{const n=$('#a_n').value.trim(),u=norm($('#a_u').value);if(!n)return;if(u&&!/^https?:\/\//i.test(u))return alert('The stream address must start with http:// or https://');
+    const o={name:n,dial:$('#a_d').value.trim(),url:u};editing>=0?S.stations[editing]=o:S.stations.push(o);editing=-1;save();rRadio()};
+  if(editing>=0)$('#a_x').onclick=()=>{editing=-1;rRadio()};else $('#a_pre').onclick=()=>{PRESETS.forEach(p=>{if(!S.stations.some(s=>s.name===p.name))S.stations.push({...p})});save();rRadio()};
+  radioUI()}
+function radioUI(){
+  const np=$('#np');if(!np)return;np.textContent=S.stations[cur]?S.stations[cur].name:'Pick a station';say(rmsg,rmsg.startsWith('Could')||rmsg.startsWith('No stream'));
+  $('#slist').innerHTML=S.stations.map((s,i)=>`<div class="st ${i===cur?'now':''}"><span>${i===cur&&!au.paused?'▶ ':''}${esc(s.name)} <small class="dim">${esc(s.dial||'')}${s.url?'':' · no stream address yet'}</small></span>
+   <button data-a="p" data-i="${i}">Play</button><button data-a="e" data-i="${i}">Edit</button><button data-a="u" data-i="${i}">↑</button><button data-a="x" data-i="${i}">✕</button></div>`).join('')||'<p class="dim">No stations yet.</p>';
+  $('#slist').onclick=e=>{const b=e.target.closest('button');if(!b)return;const i=+b.dataset.i,a=b.dataset.a;
+    if(a==='p')play(i);else if(a==='e'){editing=i;rRadio()}
+    else if(a==='u'&&i>0){[S.stations[i-1],S.stations[i]]=[S.stations[i],S.stations[i-1]];if(cur===i)cur--;else if(cur===i-1)cur++;save();radioUI()}
+    else if(a==='x'&&confirm('Remove '+S.stations[i].name+'?')){S.stations.splice(i,1);if(cur===i){au.pause();cur=-1}else if(cur>i)cur--;save();radioUI()}}}
+document.addEventListener('keydown',e=>{if(tab!=='radio'||/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))return;
+  if(e.code==='Space'){e.preventDefault();toggle()}else if(e.key==='['){step(-1)}else if(e.key===']'){step(1)}});
+
+/* ---------- notes ---------- */
+function rNotes(){$('#main').innerHTML='<textarea id="notes" placeholder="Your notes - saved automatically in this browser"></textarea>';
+  $('#notes').value=S.notes;$('#notes').oninput=e=>{S.notes=e.target.value;save()}}
+
+/* ---------- go ---------- */
+S&&S.place&&S.stations?start():openSetup(true);
+</script>
+</body>
+</html>
